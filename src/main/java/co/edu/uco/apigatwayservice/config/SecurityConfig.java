@@ -3,6 +3,7 @@ package co.edu.uco.apigatwayservice.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.config.web.server.ServerHttpSecurity;
@@ -82,6 +83,7 @@ public class SecurityConfig {
     http.csrf(ServerHttpSecurity.CsrfSpec::disable);
 
     http.authorizeExchange(auth -> auth
+        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
         .pathMatchers("/actuator/health", "/actuator/info").permitAll()
 
         // Solo admin (porque solo el admin tiene estos permisos en Auth0)
