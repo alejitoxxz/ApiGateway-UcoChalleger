@@ -18,6 +18,8 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 
@@ -25,6 +27,10 @@ import static org.springframework.security.config.Customizer.withDefaults;
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
+
+    private static final String ROLES_CLAIM = "https://uco-challenge/roles";
+    private static final String ADMIN_ROLE = "administrador";
+    private static final String USER_ROLE = "usuario";
 
     @Value("${auth0.audience}")
     private String audience;
@@ -41,13 +47,13 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                .csrf((csrf) -> csrf.disable())
-                .cors(withDefaults()) //por defecto spring va a buscar un bean con el nombre "corsConfigurationSource".
+                .csrf(csrf -> csrf.disable())
+                .cors(withDefaults())
                 .authorizeHttpRequests(authorizeRequests ->
                         authorizeRequests
-                                .requestMatchers("/api/public").permitAll()
-                                .requestMatchers("/api/admin/**").hasAuthority("administrador")
-                                .requestMatchers("/api/client/**").hasAuthority("cliente")
+                                .requestMatchers("/api/public/**").permitAll()
+                                .requestMatchers("/api/admin/**").hasAuthority(ADMIN_ROLE)
+                                .requestMatchers("/api/user/**").hasAnyAuthority(ADMIN_ROLE, USER_ROLE)
                                 .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2ResourceServer ->
@@ -64,15 +70,22 @@ public class SecurityConfig {
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList(corsAllowedOrigins));
+        configuration.setAllowedOrigins(parseAllowedOrigins());
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS", "HEAD"));
         configuration.setAllowCredentials(true);
         configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
-        configuration.setExposedHeaders(Arrays.asList("X-Get-Header"));
+        configuration.setExposedHeaders(List.of("X-Get-Header"));
         configuration.setMaxAge(3600L);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    private List<String> parseAllowedOrigins() {
+        return Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isBlank())
+                .collect(Collectors.toList());
     }
 
     @Bean
@@ -91,7 +104,7 @@ public class SecurityConfig {
     @Bean
     JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter converter = new JwtGrantedAuthoritiesConverter();
-        converter.setAuthoritiesClaimName("https://example_yt/roles");
+        converter.setAuthoritiesClaimName(ROLES_CLAIM);
         converter.setAuthorityPrefix("");
 
         JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
@@ -103,5 +116,4 @@ public class SecurityConfig {
     public WebSecurityCustomizer webSecurityCustomizer() {
         return (web) -> web.debug(webSecurityDebug);
     }
-
 }

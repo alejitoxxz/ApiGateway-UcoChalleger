@@ -9,15 +9,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping(path = "/api/public", produces = MediaType.APPLICATION_JSON_VALUE)
-public class PublicController {
+@RequestMapping(path = "/api/user", produces = MediaType.APPLICATION_JSON_VALUE)
+public class UserController {
 
-    @GetMapping
-    public ResponseEntity<ApiMessageResponse> publicEndpoint() {
+    @GetMapping("/profile")
+    public ResponseEntity<ApiMessageResponse> profile() {
         ApiMessageResponse response = new ApiMessageResponse(
-                "Acceso público disponible sin autenticación.",
-                "anonymous",
-                "public"
+                "Perfil de usuario básico disponible para cuentas autenticadas.",
+                "usuario",
+                "profile"
         );
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }
