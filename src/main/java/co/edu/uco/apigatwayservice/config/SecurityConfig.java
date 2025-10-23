@@ -3,101 +3,105 @@ package co.edu.uco.apigatwayservice.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
-import org.springframework.security.authorization.AuthorizationDecision;
-import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
-import org.springframework.security.config.web.server.ServerHttpSecurity;
-import org.springframework.security.oauth2.core.*;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverterAdapter;
-import org.springframework.security.web.server.SecurityWebFilterChain;
-import reactor.core.publisher.Mono;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.Arrays;
+
+import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
-@EnableWebFluxSecurity
+@EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
-  @Value("${auth0.audience}")
-  private String audience;
+    @Value("${auth0.audience}")
+    private String audience;
 
-  @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
-  private String issuer;
+    @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
+    private String issuer;
 
-  @Bean
-  public ReactiveJwtDecoder jwtDecoder() {
-    NimbusReactiveJwtDecoder decoder =
-        (NimbusReactiveJwtDecoder) ReactiveJwtDecoders.fromIssuerLocation(issuer);
+    @Value("${web.cors.allowed-origins}")
+    private String corsAllowedOrigins;
 
-    OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuer);
-    OAuth2TokenValidator<Jwt> withAudience = token ->
-        token.getAudience() != null && token.getAudience().contains(audience)
-          ? OAuth2TokenValidatorResult.success()
-          : OAuth2TokenValidatorResult.failure(
-              new OAuth2Error("invalid_token", "Invalid audience", null));
+    @Value("${spring.websecurity.debug:false}")
+    boolean webSecurityDebug;
 
-    decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(withIssuer, withAudience));
-    return decoder;
-  }
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf((csrf) -> csrf.disable())
+                .cors(withDefaults()) //por defecto spring va a buscar un bean con el nombre "corsConfigurationSource".
+                .authorizeHttpRequests(authorizeRequests ->
+                        authorizeRequests
+                                .requestMatchers("/api/public").permitAll()
+                                .requestMatchers("/api/admin/**").hasAuthority("administrador")
+                                .requestMatchers("/api/client/**").hasAuthority("cliente")
+                                .anyRequest().authenticated()
+                )
+                .oauth2ResourceServer(oauth2ResourceServer ->
+                        oauth2ResourceServer
+                                .jwt(jwt ->
+                                        jwt
+                                                .decoder(jwtDecoder())
+                                                .jwtAuthenticationConverter(jwtAuthenticationConverter())
+                                )
+                );
+        return http.build();
+    }
 
-  private ReactiveJwtAuthenticationConverterAdapter jwtAuthConverter() {
-    var converter = new JwtAuthenticationConverter();
-    converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-      // "scope": "a b c"
-      var scopeClaim = (String) jwt.getClaims().getOrDefault("scope", "");
-      var scopes = scopeClaim.isBlank() ? Set.<String>of() : Set.of(scopeClaim.split(" "));
+    @Bean
+    CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(Arrays.asList(corsAllowedOrigins));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS", "HEAD"));
+        configuration.setAllowCredentials(true);
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));
+        configuration.setExposedHeaders(Arrays.asList("X-Get-Header"));
+        configuration.setMaxAge(3600L);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
 
-      // "permissions": ["x","y"]
-      var permsObj = jwt.getClaims().get("permissions");
-      var perms = permsObj instanceof Collection<?> c
-          ? c.stream().map(Object::toString).collect(Collectors.toSet())
-          : Set.<String>of();
+    @Bean
+    JwtDecoder jwtDecoder() {
+        NimbusJwtDecoder jwtDecoder = JwtDecoders.fromOidcIssuerLocation(issuer);
 
-      var all = new HashSet<String>();
-      all.addAll(scopes);
-      all.addAll(perms);
+        OAuth2TokenValidator<Jwt> audienceValidator = new AudienceValidator(audience);
+        OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuer);
+        OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, audienceValidator);
 
-      return all.stream()
-          .map(s -> (org.springframework.security.core.GrantedAuthority) () -> "SCOPE_" + s)
-          .collect(Collectors.toSet());
-    });
-    return new ReactiveJwtAuthenticationConverterAdapter(converter);
-  }
+        jwtDecoder.setJwtValidator(withAudience);
 
-  private Mono<AuthorizationDecision> hasAnyScope(
-      org.springframework.security.core.Authentication a, String... scopes) {
-    var needed = Set.of(scopes);
-    boolean ok = a.getAuthorities().stream().anyMatch(ga ->
-        needed.contains(ga.getAuthority().replaceFirst("^SCOPE_", ""))
-    );
-    return Mono.just(new AuthorizationDecision(ok));
-  }
+        return jwtDecoder;
+    }
 
-  @Bean
-  public SecurityWebFilterChain springSecurityFilterChain(ServerHttpSecurity http) {
-    http.csrf(ServerHttpSecurity.CsrfSpec::disable);
+    @Bean
+    JwtAuthenticationConverter jwtAuthenticationConverter() {
+        JwtGrantedAuthoritiesConverter converter = new JwtGrantedAuthoritiesConverter();
+        converter.setAuthoritiesClaimName("https://example_yt/roles");
+        converter.setAuthorityPrefix("");
 
-    http.authorizeExchange(auth -> auth
-        .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-        .pathMatchers("/actuator/health", "/actuator/info").permitAll()
+        JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
+        jwtConverter.setJwtGrantedAuthoritiesConverter(converter);
+        return jwtConverter;
+    }
 
-        // Solo admin (porque solo el admin tiene estos permisos en Auth0)
-        .pathMatchers("/users/**").access((authz, ctx) ->
-            authz.flatMap(a -> hasAnyScope(a, "users:read", "users:write", "admin:access"))
-        )
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return (web) -> web.debug(webSecurityDebug);
+    }
 
-        .anyExchange().authenticated()
-    );
-
-    http.oauth2ResourceServer(oauth -> oauth
-        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthConverter()))
-    );
-
-    return http.build();
-  }
 }
