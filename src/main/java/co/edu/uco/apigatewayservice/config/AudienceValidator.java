@@ -1,4 +1,4 @@
-package co.edu.uco.apigatwayservice.config;
+package co.edu.uco.apigatewayservice.config;
 
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;

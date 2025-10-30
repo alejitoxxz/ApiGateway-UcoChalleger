@@ -1,6 +1,6 @@
-package co.edu.uco.apigatwayservice.controllers;
+package co.edu.uco.apigatewayservice.controllers;
 
-import co.edu.uco.apigatwayservice.dto.ApiMessageResponse;
+import co.edu.uco.apigatewayservice.dto.ApiMessageResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
