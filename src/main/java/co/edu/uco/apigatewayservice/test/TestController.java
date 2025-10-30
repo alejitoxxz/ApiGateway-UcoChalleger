@@ -1,4 +1,4 @@
-package co.edu.uco.apigatwayservice.test;
+package co.edu.uco.apigatewayservice.test;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;

@@ -1,6 +1,6 @@
-package co.edu.uco.apigatwayservice.controllers;
+package co.edu.uco.apigatewayservice.controllers;
 
-import co.edu.uco.apigatwayservice.dto.ApiMessageResponse;
+import co.edu.uco.apigatewayservice.dto.ApiMessageResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -9,15 +9,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping(path = "/api/user", produces = MediaType.APPLICATION_JSON_VALUE)
-public class UserController {
+@RequestMapping(path = "/api/public", produces = MediaType.APPLICATION_JSON_VALUE)
+public class PublicController {
 
-    @GetMapping("/profile")
-    public ResponseEntity<ApiMessageResponse> profile() {
+    @GetMapping
+    public ResponseEntity<ApiMessageResponse> publicEndpoint() {
         ApiMessageResponse response = new ApiMessageResponse(
-                "Perfil de usuario básico disponible para cuentas autenticadas.",
-                "usuario",
-                "profile"
+                "Acceso público disponible sin autenticación.",
+                "anonymous",
+                "public"
         );
         return ResponseEntity.status(HttpStatus.OK).body(response);
     }

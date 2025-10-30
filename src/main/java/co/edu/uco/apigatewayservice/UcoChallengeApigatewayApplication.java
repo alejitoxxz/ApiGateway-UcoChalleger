@@ -1,4 +1,4 @@
-package co.edu.uco.ucochallenge;
+package co.edu.uco.apigatewayservice;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -9,4 +9,5 @@ public class UcoChallengeApigatewayApplication {
     public static void main(String[] args) {
         SpringApplication.run(UcoChallengeApigatewayApplication.class, args);
     }
+
 }
