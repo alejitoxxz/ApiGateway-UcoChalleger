@@ -1,6 +1,7 @@
 package co.edu.uco.apigatwayservice.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.gateway.config.GlobalCorsProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -11,7 +12,11 @@ import org.springframework.security.config.annotation.web.reactive.EnableWebFlux
 import org.springframework.security.config.web.server.ServerHttpSecurity;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
-import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoders;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jwt.ReactiveJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverterAdapter;
@@ -21,45 +26,46 @@ import org.springframework.web.cors.reactive.CorsConfigurationSource;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
 import reactor.core.publisher.Mono;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Map;
 
 @Configuration
 @EnableWebFluxSecurity
 @EnableReactiveMethodSecurity
 public class SecurityConfig {
 
-    // Claim de roles con namespace (Auth0)
     private static final String ROLES_CLAIM = "https://uco-challenge/roles";
     private static final String ADMIN_ROLE = "admin";
-    private static final String USER_ROLE  = "usuario";
+    private static final String USER_ROLE = "usuario";
 
-    @Value("${auth0.audience}")
-    private String audience;
+    private final String audience;
+    private final String issuer;
+    private final GlobalCorsProperties globalCorsProperties;
 
-    @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
-    private String issuer;
-
-    @Value("${web.cors.allowed-origins}")
-    private String corsAllowedOrigins;
+    public SecurityConfig(@Value("${auth0.audience}") String audience,
+                          @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuer,
+                          GlobalCorsProperties globalCorsProperties) {
+        this.audience = audience;
+        this.issuer = issuer;
+        this.globalCorsProperties = globalCorsProperties;
+    }
 
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http
             .csrf(ServerHttpSecurity.CsrfSpec::disable)
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .cors(corsSpec -> corsSpec.configurationSource(corsConfigurationSource()))
             .authorizeExchange(exchange -> exchange
-                .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()       // preflights
+                .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                .pathMatchers("/actuator/health").permitAll()
                 .pathMatchers("/api/public/**").permitAll()
-                .pathMatchers("/debug/whoami").authenticated()             // diagnóstico
+                .pathMatchers("/debug/whoami").authenticated()
                 .pathMatchers("/api/admin/**").hasAuthority(ADMIN_ROLE)
                 .pathMatchers("/api/user/**").hasAnyAuthority(ADMIN_ROLE, USER_ROLE)
                 .anyExchange().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt
-                    .jwtDecoder(jwtDecoder())                              // ReactiveJwtDecoder
+                .jwt(jwtSpec -> jwtSpec
+                    .jwtDecoder(jwtDecoder())
                     .jwtAuthenticationConverter(jwtAuthenticationConverter())
                 )
             )
@@ -68,52 +74,30 @@ public class SecurityConfig {
 
     @Bean
     CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(parseAllowedOrigins());
-        config.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS", "HEAD"));
-        config.setAllowCredentials(true);
-        config.setAllowedHeaders(List.of("*"));           // Auth0 manda varios headers
-        config.setExposedHeaders(List.of("X-Get-Header"));
-        config.setMaxAge(3600L);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        Map<String, CorsConfiguration> corsConfigurations = globalCorsProperties.getCorsConfigurations();
+        if (corsConfigurations != null) {
+            corsConfigurations.forEach(source::registerCorsConfiguration);
+        }
         return source;
     }
 
-    private List<String> parseAllowedOrigins() {
-        if (corsAllowedOrigins == null || corsAllowedOrigins.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(corsAllowedOrigins.split(","))
-            .map(String::trim)
-            .filter(origin -> !origin.isBlank())
-            .collect(Collectors.toList());
-    }
-
-    /**
-     * ReactiveJwtDecoder: envolvemos NimbusJwtDecoder para WebFlux
-     * y mantenemos validación de issuer + audience.
-     */
     @Bean
     public ReactiveJwtDecoder jwtDecoder() {
         NimbusJwtDecoder nimbus = (NimbusJwtDecoder) JwtDecoders.fromOidcIssuerLocation(issuer);
 
-        OAuth2TokenValidator<Jwt> withIssuer   = JwtValidators.createDefaultWithIssuer(issuer);
+        OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuer);
         OAuth2TokenValidator<Jwt> withAudience = new DelegatingOAuth2TokenValidator<>(withIssuer, new AudienceValidator(audience));
         nimbus.setJwtValidator(withAudience);
 
         return token -> Mono.fromCallable(() -> nimbus.decode(token));
     }
 
-    /**
-     * Convierte el claim de roles (namespace) en authorities sin prefijo "ROLE_".
-     */
     @Bean
     public Converter<Jwt, Mono<AbstractAuthenticationToken>> jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
         authoritiesConverter.setAuthoritiesClaimName(ROLES_CLAIM);
-        authoritiesConverter.setAuthorityPrefix(""); // sin "ROLE_"
+        authoritiesConverter.setAuthorityPrefix("");
 
         JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
         jwtConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
